@@ -2,12 +2,14 @@ package helpers
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/gin-gonic/gin"
 )
 
 func CheckUserType(c *gin.Context, role string) (err error) {
 	UserType := c.GetString("user_type")
+	fmt.Println("UserType after using token is", UserType)
 	err = nil
 	if UserType != role {
 		err = errors.New("Unauthorised to access this resourse")
