@@ -50,6 +50,7 @@ func VerifyPassword(userPassword string, providedPassword string) (bool, string)
 func Signup() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var ctx, cancel = context.WithTimeout(context.Background(), 180*time.Second)
+		defer cancel()
 		var User models.User
 		if err := c.BindJSON(&User); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"Error": err.Error()})
@@ -62,24 +63,25 @@ func Signup() gin.HandlerFunc {
 		}
 
 		countOfEmail, err := userCollection.CountDocuments(ctx, bson.M{"email": User.Email})
-		defer cancel()
 		if err != nil {
 			log.Panic(err)
 			c.JSON(http.StatusInternalServerError, gin.H{"Error": "error occured while checking for the count of email "})
+			return
 		}
 		fmt.Println("Count of email is:", countOfEmail)
 		password := HashPassword(*User.Password)
 		User.Password = &password
 		countOfPhoneNumber, err := userCollection.CountDocuments(ctx, bson.M{"phone": User.Phone})
-		defer cancel()
 		if err != nil {
 			log.Panic(err)
 			c.JSON(http.StatusInternalServerError, gin.H{"Error": "error occured while checking for the count of mobileNumber"})
+			return
 		}
 		fmt.Println("Count of PhoneNumber is :", countOfPhoneNumber)
 
 		if countOfEmail > 0 || countOfPhoneNumber > 0 {
 			c.JSON(http.StatusInternalServerError, gin.H{"Error": "This email or phoneNumber already exists!"})
+			return
 		}
 		User.Created_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
 		User.Updated_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
@@ -95,7 +97,6 @@ func Signup() gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"Error": msg})
 			return
 		}
-		defer cancel()
 
 		c.JSON(http.StatusOK, resultInsertionNumber)
 
