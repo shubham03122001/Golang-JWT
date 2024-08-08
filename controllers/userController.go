@@ -231,3 +231,92 @@ func GetUser() gin.HandlerFunc {
 
 	}
 }
+
+func ForgetPassword() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
+
+		var request struct {
+			Email string `json:"email" validate:"required,email"`
+		}
+
+		if err := c.BindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		validationErr := validate.Struct(request)
+		if validationErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
+			return
+		}
+
+		var foundUser models.User
+		err := userCollection.FindOne(ctx, bson.M{"email": request.Email}).Decode(&foundUser)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "User with this email does not exist"})
+			return
+		}
+
+		resetToken, err := helper.GenerateResetToken(request.Email)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error generating reset token"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"reset_token": resetToken})
+	}
+}
+
+func ResetPassword() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
+
+		var request struct {
+			ResetToken  string `json:"reset_token" validate:"required"`
+			NewPassword string `json:"new_password" validate:"required,min=6"`
+		}
+
+		if err := c.BindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		validationErr := validate.Struct(request)
+		if validationErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
+			return
+		}
+
+		claims, msg := helper.ValidateToken(request.ResetToken)
+		if msg != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+			return
+		}
+
+		var foundUser models.User
+		err := userCollection.FindOne(ctx, bson.M{"email": claims.Email}).Decode(&foundUser)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid reset token"})
+			return
+		}
+
+		hashedPassword := HashPassword(request.NewPassword)
+
+		update := bson.M{
+			"$set": bson.M{
+				"password": hashedPassword,
+			},
+		}
+
+		_, err = userCollection.UpdateOne(ctx, bson.M{"email": claims.Email}, update)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error updating password"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "Password successfully reset"})
+	}
+}

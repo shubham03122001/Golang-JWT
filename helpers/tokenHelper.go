@@ -131,3 +131,18 @@ func UpdateAllTokens(signedToken string, signedRefreshToken string, userId strin
 	return
 
 }
+
+// GenerateResetToken generates a JWT token for password reset
+func GenerateResetToken(email string) (string, error) {
+	claims := &SignedDetails{
+		Email: email,
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: time.Now().Local().Add(time.Hour * time.Duration(1)).Unix(), // token valid for 1 hour
+		},
+	}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(SECRET_KEY))
+	if err != nil {
+		return "", err
+	}
+	return token, nil
+}
