@@ -8,5 +8,7 @@ import (
 func Authroutes(incomingRoutes *gin.Engine) {
 	incomingRoutes.POST("users/signup", controller.Signup())
 	incomingRoutes.POST("users/login", controller.Login())
+	incomingRoutes.POST("/users/forget-password", controller.ForgetPassword())
+	incomingRoutes.POST("/users/reset-password", controller.ResetPassword())
 
 }

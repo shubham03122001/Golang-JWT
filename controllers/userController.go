@@ -231,3 +231,106 @@ func GetUser() gin.HandlerFunc {
 
 	}
 }
+
+func ForgetPassword() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
+
+		var request struct {
+			Email string `json:"email" validate:"required,email"`
+		}
+
+		if err := c.BindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		validationErr := validate.Struct(request)
+		if validationErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
+			return
+		}
+
+		var foundUser models.User
+		err := userCollection.FindOne(ctx, bson.M{"email": request.Email}).Decode(&foundUser)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "User with this email does not exist"})
+			return
+		}
+
+		resetToken, err := helper.GenerateResetToken(request.Email)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error generating reset token"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"reset_token": resetToken})
+	}
+}
+
+func ResetPassword() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Create a context with a timeout
+		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
+
+		// Extract the reset token from the headers
+		resetToken := c.GetHeader("reset_token")
+		if resetToken == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Reset token is required"})
+			return
+		}
+
+		// Bind the new password from the request body
+		var request struct {
+			NewPassword string `json:"new_password" validate:"required,min=6"`
+		}
+
+		if err := c.BindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Validate the new password
+		validationErr := validate.Struct(request)
+		if validationErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
+			return
+		}
+
+		// Validate the reset token
+		claims, msg := helper.ValidateToken(resetToken)
+		if msg != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+			return
+		}
+
+		// Find the user associated with the reset token
+		var foundUser models.User
+		err := userCollection.FindOne(ctx, bson.M{"email": claims.Email}).Decode(&foundUser)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid reset token"})
+			return
+		}
+
+		// Hash the new password
+		hashedPassword := HashPassword(request.NewPassword)
+
+		// Update the user's password in the database
+		update := bson.M{
+			"$set": bson.M{
+				"password": hashedPassword,
+			},
+		}
+
+		_, err = userCollection.UpdateOne(ctx, bson.M{"email": claims.Email}, update)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error updating password"})
+			return
+		}
+
+		// Respond with success
+		c.JSON(http.StatusOK, gin.H{"message": "Password successfully reset"})
+	}
+}
